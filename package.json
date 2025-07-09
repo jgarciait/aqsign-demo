@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "db:generate": "supabase gen types typescript --project-id=\"$SUPABASE_PROJECT_ID\" --schema public > types/supabase.ts",
-    "postbuild": "next-bundle-analyzer --server",
+    "analyze": "ANALYZE=true next build",
     "vercel-build": "next build"
   },
   "dependencies": {
