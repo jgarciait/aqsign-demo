@@ -25,7 +25,7 @@ export default async function Home() {
               <Logo className="h-24 w-24" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-center mb-4">Bienvenido a AQ Fast Sign</h1>
+          <h1 className="text-3xl font-bold text-center mb-4">Bienvenido a AQ Fast Sign Demo</h1>
           <p className="text-center mb-12">La forma segura y eficiente de firmar y gestionar tus documentos</p>
 
           <div className="grid grid-cols-2 gap-4 w-full">

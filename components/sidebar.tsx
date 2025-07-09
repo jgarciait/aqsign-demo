@@ -159,7 +159,7 @@ export default function Sidebar({
       <div className="p-4 flex items-center justify-between border-b" style={{ borderColor: '#E5E7EB' }}>
         <Link href="/fast-sign" className={`flex items-center ${collapsed ? "justify-center" : ""}`}>
           <Logo className="h-8 w-8" color="#0d2340" />
-          {!collapsed && <span className="ml-2 font-semibold" style={{ color: '#282828' }}>AQ Fast Sign</span>}
+          {!collapsed && <span className="ml-2 font-semibold" style={{ color: '#282828' }}>Demo</span>}
         </Link>
         <div className="flex items-center space-x-2">
           {/* Mobile close button */}
