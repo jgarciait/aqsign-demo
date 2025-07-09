@@ -8,7 +8,7 @@ import "@/utils/polyfills"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "AQSign - Document Signing",
+  title: "AQ FastSign Demo - Document Signing",
   description: "Secure document signing platform",
   generator: 'v0.dev',
   other: {
