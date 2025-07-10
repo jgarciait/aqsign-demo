@@ -75,7 +75,6 @@ export default function FastSignPageSimple() {
         description: "Ahora puedes ver tu documento.",
       })
     } catch (error) {
-      console.error('Upload error:', error)
       setUploadError('Error al subir el documento. Por favor intenta de nuevo.')
       setUploadedFile(null)
     } finally {
