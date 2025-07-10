@@ -11,7 +11,7 @@ import { Logo } from "./logo"
 import { useToast } from "@/hooks/use-toast"
 import { useIsMobile } from "@/hooks/use-mobile"
 import dynamic from 'next/dynamic'
-import { NotificationBanner } from "@/components/ui/notification-banner"
+
 
 // Simple dynamic imports - let Next.js handle the chunking
 const Document = dynamic(() => import('react-pdf').then(mod => mod.Document), { 
@@ -129,12 +129,7 @@ export default function PdfAnnotationEditor({
   const documentRef = useRef<HTMLDivElement>(null)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const { toast } = useToast()
-  const [signatureTipDismissed, setSignatureTipDismissed] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('hideSignatureTip') === 'true'
-    }
-    return false
-  })
+
   const [pagesDimensions, setPagesDimensions] = useState<Map<number, any>>(new Map())
 
   // Trigger pulse animation when persistent mode is activated
@@ -1334,18 +1329,7 @@ export default function PdfAnnotationEditor({
       `}</style>
 
 
-      {/* Signature Management Tip */}
-      {annotations.some(a => a.type === 'signature') && !selectedAnnotation && !signatureTipDismissed && (
-        <NotificationBanner 
-          onClose={() => {
-            // Set a flag to not show this tip again in this session
-            sessionStorage.setItem('hideSignatureTip', 'true')
-            setSignatureTipDismissed(true)
-          }}
-        >
-          💡 Tip: Click on a signature to select it, then click the red ❌ button to delete it
-        </NotificationBanner>
-      )}
+
 
       {/* Main toolbar */}
       <div 
