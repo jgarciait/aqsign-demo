@@ -200,21 +200,22 @@ export async function GET(
             image = await pdfDoc.embedPng(imageBytes)
           }
 
-          // Calculate position and size
+          // Calculate position and size using SAME logic as fast-sign endpoint
           let x, y, width, height
 
           if (annotation.relativeX !== undefined && annotation.relativeY !== undefined) {
-            // Use relative positioning
+            // Use relative positioning - SAME as fast-sign endpoint
             x = annotation.relativeX * pageWidth
-            y = pageHeight - (annotation.relativeY * pageHeight) - (annotation.height || 150)
-            width = annotation.width || 300
-            height = annotation.height || 150
+            // Convert Y from web coordinates to PDF coordinates using relative height
+            y = pageHeight - (annotation.relativeY * pageHeight) - ((annotation.relativeHeight || 0.08) * pageHeight)
+            width = (annotation.relativeWidth || 0.2) * pageWidth
+            height = (annotation.relativeHeight || 0.08) * pageHeight
           } else {
             // Use absolute positioning (legacy)
             x = annotation.x || 100
-            y = pageHeight - (annotation.y || 100) - (annotation.height || 150)
-            width = annotation.width || 300
-            height = annotation.height || 150
+            y = pageHeight - (annotation.y || 100) - (annotation.height || 100)
+            width = annotation.width || 200
+            height = annotation.height || 100
           }
 
           // Ensure the signature fits within the page

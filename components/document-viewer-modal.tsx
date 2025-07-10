@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Download, Loader2, FileText, CheckCircle, AlertCircle, ArrowRight, Edit3, PanelRightOpen, PanelRightClose } from "lucide-react"
 import dynamic from "next/dynamic"
-import { ensureValidRelativeDimensions } from "@/utils/signature-dimensions"
+// Removed ensureValidRelativeDimensions import - no longer needed
 
 // OPTIMIZACIÓN: Dynamic imports para todos los componentes PDF - SOLO CLIENTE
 const Document = dynamic(() => import("react-pdf").then(mod => mod.Document), { 
@@ -84,18 +84,43 @@ const SignatureOverlay = ({
 }) => {
   // Convert relative coordinates to absolute coordinates for the current page scale
   const getAbsolutePosition = () => {
-    const normalizedSig = ensureValidRelativeDimensions(signature, pageWidth, pageHeight)
+    // Use original relative coordinates without normalization to preserve exact positioning
+    let relativeX = signature.relativeX
+    let relativeY = signature.relativeY
+    let relativeWidth = signature.relativeWidth
+    let relativeHeight = signature.relativeHeight
     
-    // Use relative coordinates or fallback to absolute coordinates
-    const relativeX = normalizedSig.relativeX || (normalizedSig.x || 0) / pageWidth
-    const relativeY = normalizedSig.relativeY || (normalizedSig.y || 0) / pageHeight
+    // Only use fallback calculations if relative coordinates are completely missing
+    if (relativeX === undefined || relativeX === null) {
+      relativeX = (signature.x || 0) / pageWidth
+    }
+    if (relativeY === undefined || relativeY === null) {
+      relativeY = (signature.y || 0) / pageHeight
+    }
+    if (relativeWidth === undefined || relativeWidth === null) {
+      relativeWidth = (signature.width || 200) / pageWidth
+    }
+    if (relativeHeight === undefined || relativeHeight === null) {
+      relativeHeight = (signature.height || 100) / pageHeight
+    }
     
-    return {
+    const position = {
       x: relativeX * pageWidth * scale,
       y: relativeY * pageHeight * scale,
-      width: normalizedSig.relativeWidth * pageWidth * scale,
-      height: normalizedSig.relativeHeight * pageHeight * scale
+      width: relativeWidth * pageWidth * scale,
+      height: relativeHeight * pageHeight * scale
     }
+    
+    console.log('📍 SignatureOverlay position calculation:', {
+      signatureId: signature.id,
+      originalRelative: { x: signature.relativeX, y: signature.relativeY, width: signature.relativeWidth, height: signature.relativeHeight },
+      usedRelative: { x: relativeX, y: relativeY, width: relativeWidth, height: relativeHeight },
+      pageSize: { width: pageWidth, height: pageHeight },
+      scale,
+      finalPosition: position
+    })
+    
+    return position
   }
 
   const position = getAbsolutePosition()

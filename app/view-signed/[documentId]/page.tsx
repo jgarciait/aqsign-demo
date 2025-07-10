@@ -7,7 +7,7 @@ import Link from "next/link"
 import ClientWrapper from "./client-wrapper"
 import DocumentSidebar from "./document-sidebar"
 import Sidebar from "@/components/sidebar"
-import { ensureValidRelativeDimensions, STANDARD_PAGE_WIDTH, STANDARD_PAGE_HEIGHT } from '@/utils/signature-dimensions'
+// Removed ensureValidRelativeDimensions import - no longer normalizing signature positions
 
 interface PageProps {
   params: Promise<{ documentId: string }>
@@ -129,9 +129,8 @@ export default async function ViewSignedDocumentPage({ params, searchParams }: P
             signatureSource: sig.source || sigRecord.signature_source || 'canvas'
           }
           
-          // Normalize dimensions using standard page size as reference
-          const normalized = ensureValidRelativeDimensions(baseSignature, STANDARD_PAGE_WIDTH, STANDARD_PAGE_HEIGHT)
-          signatureAnnotations.push(normalized)
+          // Use original dimensions without normalization to preserve exact positioning
+          signatureAnnotations.push(baseSignature)
         })
       } else if (sigRecord.signature_data?.dataUrl) {
         // Old format: direct signature data

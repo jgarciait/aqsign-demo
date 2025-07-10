@@ -797,6 +797,7 @@ export default function FastSignEditPage({ params }: { params: Promise<{ documen
     console.log("🔄 Handling annotation changes in edit mode")
     console.log("📊 Previous annotations count:", annotations.length)
     console.log("📊 New annotations count:", newAnnotations.length)
+    console.log("📍 Called from PdfAnnotationEditor sync")
     
     // More detailed logging for debugging
     console.log("📋 Previous annotation IDs:", annotations.map(a => a.id))
@@ -816,13 +817,29 @@ export default function FastSignEditPage({ params }: { params: Promise<{ documen
     const hasRemovedAnnotations = annotations.some(a => !newIds.has(a.id))
     const hasChangedPositions = newAnnotations.some(newAnn => {
       const oldAnn = annotations.find(a => a.id === newAnn.id)
-      return oldAnn && (
+      if (!oldAnn) return false
+      
+      const positionChanged = (
         oldAnn.x !== newAnn.x || 
         oldAnn.y !== newAnn.y || 
         oldAnn.width !== newAnn.width || 
         oldAnn.height !== newAnn.height ||
-        oldAnn.page !== newAnn.page
+        oldAnn.page !== newAnn.page ||
+        oldAnn.relativeX !== newAnn.relativeX ||
+        oldAnn.relativeY !== newAnn.relativeY ||
+        oldAnn.relativeWidth !== newAnn.relativeWidth ||
+        oldAnn.relativeHeight !== newAnn.relativeHeight
       )
+      
+      if (positionChanged) {
+        console.log(`🔄 Position changed for annotation ${newAnn.id}:`)
+        console.log(`  - Old position: x=${oldAnn.x}, y=${oldAnn.y}, page=${oldAnn.page}`)
+        console.log(`  - New position: x=${newAnn.x}, y=${newAnn.y}, page=${newAnn.page}`)
+        console.log(`  - Old relative: x=${oldAnn.relativeX}, y=${oldAnn.relativeY}`)
+        console.log(`  - New relative: x=${newAnn.relativeX}, y=${newAnn.relativeY}`)
+      }
+      
+      return positionChanged
     })
     
     const hasChanged = hasAddedAnnotations || hasRemovedAnnotations || hasChangedPositions
@@ -1406,7 +1423,6 @@ export default function FastSignEditPage({ params }: { params: Promise<{ documen
               onBack={handleBack}
               onSave={handleSaveAnnotations}
               initialAnnotations={annotations}
-              token={undefined}
               readOnly={false}
               hideSaveButton={true}
               onOpenSidebar={() => window.dispatchEvent(new Event("openMainSidebar"))}

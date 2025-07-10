@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/utils/supabase/admin"
 import { BUCKET_PUBLIC } from "@/utils/supabase/storage"
 import { PDFDocument, rgb } from 'pdf-lib'
-import { ensureValidRelativeDimensions, STANDARD_PAGE_WIDTH, STANDARD_PAGE_HEIGHT } from '@/utils/signature-dimensions'
 import { encodeFileNameForHeader } from "@/utils/file-utils"
 
 export async function GET(
@@ -301,8 +300,6 @@ export async function GET(
         const { width: pageWidth, height: pageHeight } = page.getSize()
 
         if (annotation.type === 'signature' && annotation.imageData) {
-          // Normalize signature dimensions to ensure consistency
-          const normalizedAnnotation = ensureValidRelativeDimensions(annotation, pageWidth, pageHeight)
           try {
             // Extract base64 data from data URL
             const base64Data = annotation.imageData.split(',')[1]
@@ -325,27 +322,32 @@ export async function GET(
               image = await pdfDoc.embedPng(imageBytes)
             }
 
-            // Calculate position and dimensions using normalized data
+            // Calculate position and dimensions with CORRECT PDF coordinate system conversion
             let x, y, width, height
             
-            // Always use normalized relative dimensions for consistency
-            x = normalizedAnnotation.relativeX * pageWidth
-            y = pageHeight - (normalizedAnnotation.relativeY * pageHeight) - (normalizedAnnotation.relativeHeight * pageHeight)
-            width = normalizedAnnotation.relativeWidth * pageWidth
-            height = normalizedAnnotation.relativeHeight * pageHeight
+            // PDF coordinate system: (0,0) is bottom-left
+            // Web coordinate system: (0,0) is top-left  
+            // We need to convert from web coordinates (stored in DB) to PDF coordinates
+            if (annotation.relativeX !== undefined && annotation.relativeY !== undefined) {
+              x = annotation.relativeX * pageWidth
+              // Convert Y from web coordinates (0=top) to PDF coordinates (0=bottom)
+              y = pageHeight - (annotation.relativeY * pageHeight) - ((annotation.relativeHeight || 0.08) * pageHeight)
+              width = (annotation.relativeWidth || 0.2) * pageWidth
+              height = (annotation.relativeHeight || 0.08) * pageHeight
+            } else {
+              // Fallback to absolute coordinates (legacy) - also need Y conversion
+              x = annotation.x || 100
+              y = pageHeight - (annotation.y || 100) - (annotation.height || 100)
+              width = annotation.width || 200
+              height = annotation.height || 100
+            }
             
-            console.log(`Fast Sign Print: Using normalized relative coordinates for signature ${annotation.id}:`, {
+            console.log(`Fast Sign Print: Converting web coordinates to PDF coordinates for signature ${annotation.id}:`, {
               original: {
                 relativeX: annotation.relativeX,
                 relativeY: annotation.relativeY,
                 relativeWidth: annotation.relativeWidth,
                 relativeHeight: annotation.relativeHeight
-              },
-              normalized: {
-                relativeX: normalizedAnnotation.relativeX,
-                relativeY: normalizedAnnotation.relativeY,
-                relativeWidth: normalizedAnnotation.relativeWidth,
-                relativeHeight: normalizedAnnotation.relativeHeight
               },
               pageSize: { pageWidth, pageHeight },
               calculated: { x, y, width, height }
@@ -374,15 +376,16 @@ export async function GET(
           }
         } else if (annotation.type === 'text' && annotation.text) {
           try {
-            // Calculate position
+            // Calculate position with PDF coordinate system conversion
             let x, y
 
             if (annotation.relativeX !== undefined && annotation.relativeY !== undefined) {
               x = annotation.relativeX * pageWidth
-              y = pageHeight - (annotation.relativeY * pageHeight) - 20 // Adjust for text height
+              // Convert Y from web coordinates to PDF coordinates  
+              y = pageHeight - (annotation.relativeY * pageHeight) - 20 // Account for text height
             } else {
               x = annotation.x || 100
-              y = pageHeight - (annotation.y || 100) - 20
+              y = pageHeight - (annotation.y || 100) - 20 // Convert legacy coordinates too
             }
 
             // Draw text annotation
