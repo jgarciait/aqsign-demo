@@ -612,6 +612,8 @@ export default function FastSignClient() {
         description: "Guardando automáticamente para evitar pérdida de datos.",
       })
 
+      console.log("Uploading document to bucket immediately...")
+
       // Upload to bucket
       const formData = new FormData()
       formData.append("file", file)
@@ -626,6 +628,7 @@ export default function FastSignClient() {
       }
 
       const result = await uploadResponse.json()
+      console.log("Upload result:", result)
 
       // Save to database
       const dbResult = await createFastSignDocument(
@@ -651,12 +654,15 @@ export default function FastSignClient() {
         URL.revokeObjectURL(documentUrl)
       }
 
+      console.log("Document saved immediately with ID:", dbResult.document.id)
+
       toast({
         title: "✅ Documento guardado",
         description: "El documento se ha guardado automáticamente. Ahora puedes agregar firmas con seguridad.",
       })
 
     } catch (error) {
+      console.error("Immediate save error:", error)
       toast({
         title: "❌ Error al guardar",
         description: "No se pudo guardar el documento automáticamente. Las firmas se guardarán cuando uses 'Actualizar Firmas'.",
