@@ -115,6 +115,8 @@ export default function PdfAnnotationEditor({
   const [pendingSignature, setPendingSignature] = useState<{ dataUrl: string; source: 'canvas' | 'wacom'; timestamp: string } | null>(null)
   const [pdfLoadError, setPdfLoadError] = useState<Error | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [persistentSignatureMode, setPersistentSignatureMode] = useState(true)
+  const [showPulseAnimation, setShowPulseAnimation] = useState(false)
   
   // Mobile detection
   const isMobile = useIsMobile()
@@ -127,7 +129,6 @@ export default function PdfAnnotationEditor({
   const documentRef = useRef<HTMLDivElement>(null)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const { toast } = useToast()
-  const [showNotification, setShowNotification] = useState(false)
   const [signatureTipDismissed, setSignatureTipDismissed] = useState(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('hideSignatureTip') === 'true'
@@ -135,6 +136,17 @@ export default function PdfAnnotationEditor({
     return false
   })
   const [pagesDimensions, setPagesDimensions] = useState<Map<number, any>>(new Map())
+
+  // Trigger pulse animation when persistent mode is activated
+  useEffect(() => {
+    if (persistentSignatureMode && pendingSignature) {
+      setShowPulseAnimation(true)
+      const timer = setTimeout(() => {
+        setShowPulseAnimation(false)
+      }, 2000) // Animation lasts 2 seconds
+      return () => clearTimeout(timer)
+    }
+  }, [persistentSignatureMode, pendingSignature])
 
   // Touch/swipe handling for page navigation
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null)
@@ -150,6 +162,10 @@ export default function PdfAnnotationEditor({
 
   // Enhanced coordinate conversion system
   const convertRelativeToAbsolute = (annotations: Annotation[]): Annotation[] => {
+    if (!annotations || !Array.isArray(annotations)) {
+      console.warn('convertRelativeToAbsolute: annotations is not a valid array', annotations)
+      return []
+    }
     return annotations.map(annotation => {
       // Only convert if we have relative coordinates
       if (annotation.relativeX !== undefined && annotation.relativeY !== undefined) {
@@ -296,7 +312,7 @@ export default function PdfAnnotationEditor({
       setLastProcessedInitialAnnotations(currentKey)
       
       // Set original signatures for change tracking
-      const signatures = initialAnnotations.filter(a => a.type === 'signature')
+      const signatures = (initialAnnotations || []).filter(a => a.type === 'signature')
       setOriginalSignatures(signatures)
     } else if (hasUserAddedAnnotations) {
       console.log('🚫 Skipping initial annotation conversion - user has added annotations')
@@ -336,6 +352,9 @@ export default function PdfAnnotationEditor({
 
   // Check for signature changes
   const hasSignatureChanges = () => {
+    if (!annotations || !Array.isArray(annotations) || !originalSignatures || !Array.isArray(originalSignatures)) {
+      return false
+    }
     const currentSignatures = annotations.filter(a => a.type === 'signature')
     
     // Check if number of signatures changed
@@ -397,9 +416,9 @@ export default function PdfAnnotationEditor({
       
       if (hasChanged) {
         console.log('🔄 PDF Editor: Annotations changed, syncing with parent')
-        console.log('📊 Previous annotations:', annotationsRef.current.length)
-        console.log('📊 New annotations:', annotations.length)
-        console.log('📝 Annotations details:', annotations.map(a => ({ id: a.id, type: a.type, hasImageData: !!a.imageData })))
+        console.log('📊 Previous annotations:', annotationsRef.current?.length || 0)
+        console.log('📊 New annotations:', annotations?.length || 0)
+        console.log('📝 Annotations details:', annotations?.map(a => ({ id: a.id, type: a.type, hasImageData: !!a.imageData })) || [])
         
         annotationsRef.current = annotations
         
@@ -720,7 +739,7 @@ export default function PdfAnnotationEditor({
           y: boundedY,
           width: signatureWidth,
           height: signatureHeight,
-          content: `${annotations.filter(a => a.type === "signature").length + 1}`,
+          content: `${(annotations || []).filter(a => a.type === "signature").length + 1}`,
           page: pageNumber,
           timestamp: new Date().toISOString(),
           // Calculate relative coordinates
@@ -755,14 +774,22 @@ export default function PdfAnnotationEditor({
           relativeHeight: signatureHeight / pageInfo.height
         }
         
-        // DON'T clear pending signature - allow reuse for multiple placements
-        // setPendingSignature(null) // Commented out to allow signature reuse
+        // Only clear pending signature if persistent mode is disabled
+        if (!persistentSignatureMode) {
+          setPendingSignature(null)
+          safeSetCurrentTool("select")
+          console.log('🧹 Cleared pending signature (persistent mode disabled)')
+        } else {
+          console.log('🔄 Keeping pending signature for reuse (persistent mode enabled)')
+          // Keep signature tool active for continuous use
+          setCurrentTool("signature")
+        }
         
         // Add the new signature to the annotations array
         console.log('📝 Adding signature to annotations:', newSignature.id)
         setAnnotations(prev => {
           const newAnnotations = [...prev, newSignature]
-          console.log('📊 Total signatures now:', newAnnotations.filter(a => a.type === 'signature').length)
+          console.log('📊 Total signatures now:', (newAnnotations || []).filter(a => a.type === 'signature').length)
           return newAnnotations
         })
         
@@ -864,16 +891,26 @@ export default function PdfAnnotationEditor({
     console.log('🎯 Setting currentTool to signature for placement')
     setCurrentTool("signature") // Activate signature placement tool
     
-    // Show notification to guide user
-    setShowNotification(true)
+    // Keep persistent mode enabled by default when new signature is created
+    setPersistentSignatureMode(true)
+  }
+
+  // Helper function to safely change tool without interfering with persistent mode
+  const safeSetCurrentTool = (newTool: "select" | "signature" | "text") => {
+    // If persistent mode is active and we have a pending signature, don't change from signature tool
+    if (persistentSignatureMode && pendingSignature && currentTool === "signature" && newTool === "select") {
+      console.log('🔒 Prevented tool change to select - persistent mode is active')
+      return
+    }
+    setCurrentTool(newTool)
   }
 
   // Clear pending signature (allow user to change signature)
   const handleClearPendingSignature = () => {
     setPendingSignature(null)
+    setPersistentSignatureMode(false) // Disable persistent mode when clearing
     setCurrentTool("select")
-    setShowNotification(false)
-    console.log('🧹 Cleared pending signature')
+    console.log('🧹 Cleared pending signature and disabled persistent mode')
   }
 
   // Handle simple canvas completion (for unauthenticated users)
@@ -893,8 +930,8 @@ export default function PdfAnnotationEditor({
     console.log('🎯 Setting currentTool to signature for placement')
     setCurrentTool("signature") // Activate signature placement tool
     
-    // Show notification to guide user
-    setShowNotification(true)
+    // Keep persistent mode enabled by default when new signature is created
+    setPersistentSignatureMode(true)
   }
 
   // Auto-save signature when placed
@@ -1212,7 +1249,7 @@ export default function PdfAnnotationEditor({
       page: annotationToDelete?.page
     })
     const newAnnotations = annotations.filter((annotation) => annotation.id !== id)
-    console.log('📝 PDF Editor: Annotations after deletion:', newAnnotations.length, 'remaining')
+    console.log('📝 PDF Editor: Annotations after deletion:', (newAnnotations || []).length, 'remaining')
     console.log('📝 PDF Editor: Remaining annotation IDs:', newAnnotations.map(a => a.id))
     setAnnotations(newAnnotations)
     setSelectedAnnotation(null)
@@ -1278,15 +1315,27 @@ export default function PdfAnnotationEditor({
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: '#F8F9FB' }}>
-      {/* Notification Banner */}
-      {showNotification && currentTool === "signature" && (
-        <NotificationBanner onClose={() => setShowNotification(false)}>
-          Click anywhere on the document to place your signature
-        </NotificationBanner>
-      )}
+      {/* Custom CSS for slow pulse animation */}
+      <style>{`
+        @keyframes slowPulse {
+          0% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 0.7;
+            transform: scale(1.05);
+          }
+          100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+      `}</style>
+
 
       {/* Signature Management Tip */}
-      {annotations.some(a => a.type === 'signature') && !selectedAnnotation && !showNotification && !signatureTipDismissed && (
+      {annotations.some(a => a.type === 'signature') && !selectedAnnotation && !signatureTipDismissed && (
         <NotificationBanner 
           onClose={() => {
             // Set a flag to not show this tip again in this session
@@ -1354,34 +1403,70 @@ export default function PdfAnnotationEditor({
             <div className="flex items-center space-x-2">
               {/* Add Signature Button - Hidden in preview mode */}
               {!previewMode && (
-                <button
-                  onClick={() => {
-                    console.log('🖱️ FAST-SIGN: Desktop "Añadir Firma" button clicked!')
-                    console.log('🖱️ FAST-SIGN: Current state before click:', {
-                      currentTool,
-                      showSignatureModal,
-                      pendingSignature: !!pendingSignature,
-                      token: !!token,
-                      mappingMode
-                    })
-                    handleToolChange("signature")
-                  }}
-                  className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors ${
-                    currentTool === "signature" || showSignatureModal || showSimpleCanvas
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
-                  }`}
-                >
-                  <Pen className="h-4 w-4 mr-2" />
-                  {mappingMode ? "Add Field" : "Añadir Firma"}
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      console.log('🖱️ FAST-SIGN: Desktop "Añadir Firma" button clicked!')
+                      console.log('🖱️ FAST-SIGN: Current state before click:', {
+                        currentTool,
+                        showSignatureModal,
+                        pendingSignature: !!pendingSignature,
+                        token: !!token,
+                        mappingMode
+                      })
+                      handleToolChange("signature")
+                    }}
+                    className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors ${
+                      currentTool === "signature" || showSignatureModal || showSimpleCanvas
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                  >
+                    <Pen className="h-4 w-4 mr-2" />
+                    {mappingMode ? "Add Field" : "Añadir Firma"}
+                  </button>
+                  
+                  {/* Persistent Signature Mode Toggle */}
+                  {!mappingMode && pendingSignature && (
+                    <div 
+                      className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-all duration-300 ${
+                        persistentSignatureMode 
+                          ? "bg-blue-50 border-2 border-blue-300 shadow-lg" 
+                          : "bg-gray-100 border-2 border-gray-200"
+                      }`}
+                      style={{
+                        animation: showPulseAnimation ? 'slowPulse 2s ease-in-out' : 'none'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        id="persistent-signature-desktop"
+                        checked={persistentSignatureMode}
+                        onChange={(e) => setPersistentSignatureMode(e.target.checked)}
+                        className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                      />
+                      <label htmlFor="persistent-signature-desktop" className={`text-sm cursor-pointer font-medium transition-colors ${
+                        persistentSignatureMode ? "text-blue-700" : "text-gray-700"
+                      }`}>
+                        Mantener firma
+                      </label>
+                      <button
+                        onClick={handleClearPendingSignature}
+                        className="ml-2 p-1 text-gray-500 hover:text-red-600 transition-colors"
+                        title="Clear signature"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               
               
               {!hideSaveButton && !previewMode && (
                 <button
                   onClick={handleSaveAnnotations}
-                  disabled={saving || (mappingMode ? annotations.filter(a => a.type === "signature").length === 0 : !hasUnsavedChanges)}
+                  disabled={saving || (mappingMode ? (annotations || []).filter(a => a.type === "signature").length === 0 : !hasUnsavedChanges)}
                   className="flex items-center px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <Save className="h-4 w-4 mr-2" />
@@ -1407,7 +1492,7 @@ export default function PdfAnnotationEditor({
             {!hideSaveButton && !previewMode && (
               <button
                 onClick={handleSaveAnnotations}
-                disabled={saving || (mappingMode ? annotations.filter(a => a.type === "signature").length === 0 : !hasUnsavedChanges)}
+                disabled={saving || (mappingMode ? (annotations || []).filter(a => a.type === "signature").length === 0 : !hasUnsavedChanges)}
                 className="lg:hidden flex items-center justify-center w-8 h-8 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={saving ? "Saving..." : mappingMode ? "Save Mapping" : "Save"}
               >
@@ -1452,17 +1537,53 @@ export default function PdfAnnotationEditor({
 
             {/* Center - Add Signature - Hidden in preview mode */}
             {!previewMode && (
-              <button
-                onClick={() => handleToolChange("signature")}
-                className={`flex items-center px-6 py-3 rounded-lg font-medium transition-colors ${
-                  currentTool === "signature" || showSignatureModal || showSimpleCanvas
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
-                }`}
-              >
-                <Pen className="h-5 w-5 mr-2" />
-                {mappingMode ? "Add Field" : "Añadir Firma"}
-              </button>
+              <div className="flex flex-col items-center space-y-2">
+                <button
+                  onClick={() => handleToolChange("signature")}
+                  className={`flex items-center px-6 py-3 rounded-lg font-medium transition-colors ${
+                    currentTool === "signature" || showSignatureModal || showSimpleCanvas
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                  }`}
+                >
+                  <Pen className="h-5 w-5 mr-2" />
+                  {mappingMode ? "Add Field" : "Añadir Firma"}
+                </button>
+                
+                {/* Persistent Signature Mode Toggle for Mobile */}
+                {!mappingMode && pendingSignature && (
+                  <div 
+                    className={`flex items-center space-x-2 px-3 py-1 rounded-lg transition-all duration-300 ${
+                      persistentSignatureMode 
+                        ? "bg-blue-50 border-2 border-blue-300 shadow-lg" 
+                        : "bg-gray-100 border-2 border-gray-200"
+                    }`}
+                    style={{
+                      animation: showPulseAnimation ? 'slowPulse 2s ease-in-out' : 'none'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      id="persistent-signature-mobile"
+                      checked={persistentSignatureMode}
+                      onChange={(e) => setPersistentSignatureMode(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    />
+                    <label htmlFor="persistent-signature-mobile" className={`text-xs cursor-pointer font-medium transition-colors ${
+                      persistentSignatureMode ? "text-blue-700" : "text-gray-700"
+                    }`}>
+                      Mantener firma
+                    </label>
+                    <button
+                      onClick={handleClearPendingSignature}
+                      className="ml-2 p-1 text-gray-500 hover:text-red-600 transition-colors"
+                      title="Clear signature"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Preview mode - Show only page navigation */}
@@ -1636,7 +1757,7 @@ export default function PdfAnnotationEditor({
                           isSelected={selectedAnnotation === annotation.id}
                           onSelect={() => {
                             setSelectedAnnotation(annotation.id)
-                            setCurrentTool("select")
+                            safeSetCurrentTool("select")
                           }}
                           onDrag={handleAnnotationDrag}
                           onResize={handleAnnotationResize}
