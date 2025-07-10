@@ -4,7 +4,7 @@ import "@/utils/polyfills"
 import type React from "react"
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import { ChevronLeft, Save, Pen, Type, Trash2, Check, ZoomIn, ZoomOut, Send, X, Plus, Edit3, ChevronRight, Hand, Menu, Settings } from "lucide-react"
+import { ChevronLeft, Save, Pen, Type, Trash2, Check, Send, X, Plus, Edit3, ChevronRight, Hand, Menu, Settings } from "lucide-react"
 import SignatureSelectionModal from "./signature-selection-modal"
 import SimpleSignatureCanvas from "./simple-signature-canvas"
 import { Logo } from "./logo"
@@ -109,9 +109,9 @@ export default function PdfAnnotationEditor({
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null)
-  const [zoomLevel, setZoomLevel] = useState(100)
-  const [responsiveScale, setResponsiveScale] = useState(1.4) // Ampliar más el PDF para llenar el contenedor más ancho
+  const [responsiveScale, setResponsiveScale] = useState(1.0) // PDF base scale - will be calculated on first load
   const [numPages, setNumPages] = useState<number>(0)
+  const [initialScaleSet, setInitialScaleSet] = useState(false)
   const [pendingSignature, setPendingSignature] = useState<{ dataUrl: string; source: 'canvas' | 'wacom'; timestamp: string } | null>(null)
   const [pdfLoadError, setPdfLoadError] = useState<Error | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -147,15 +147,12 @@ export default function PdfAnnotationEditor({
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null)
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null)
 
-  // Double-tap zoom handling
-  const [lastTap, setLastTap] = useState<number>(0)
-  const [viewportZoom, setViewportZoom] = useState<number>(1)
-  const [zoomOrigin, setZoomOrigin] = useState<{ x: number; y: number }>({ x: 50, y: 50 })
+
 
   // Minimum swipe distance (in px)
   const minSwipeDistance = 50
 
-  // Enhanced coordinate conversion system
+  // Enhanced coordinate conversion system using current scaled dimensions
   const convertRelativeToAbsolute = (annotations: Annotation[]): Annotation[] => {
     if (!annotations || !Array.isArray(annotations)) {
       console.warn('convertRelativeToAbsolute: annotations is not a valid array', annotations)
@@ -171,27 +168,32 @@ export default function PdfAnnotationEditor({
           return annotation
         }
 
-        // Convert relative coordinates (0-1 range) to absolute coordinates
-        // These are the actual positions on the rendered page
-        const absoluteX = annotation.relativeX * pageDimensions.width
-        const absoluteY = annotation.relativeY * pageDimensions.height
+        // Use the current scaled dimensions (not original dimensions)
+        const displayWidth = pageDimensions.width
+        const displayHeight = pageDimensions.height
         
-        // Also convert relative dimensions if they don't exist
+        // Convert relative coordinates (0-1 range) to absolute coordinates based on current display size
+        const absoluteX = annotation.relativeX * displayWidth
+        const absoluteY = annotation.relativeY * displayHeight
+        
+        // Also convert relative dimensions if they exist
         let absoluteWidth = annotation.width
         let absoluteHeight = annotation.height
         
-        // If the annotation has relative dimensions, use those
+        // If the annotation has relative dimensions, use those with current display dimensions
         if (annotation.relativeWidth !== undefined && annotation.relativeHeight !== undefined) {
-          absoluteWidth = annotation.relativeWidth * pageDimensions.width
-          absoluteHeight = annotation.relativeHeight * pageDimensions.height
+          absoluteWidth = annotation.relativeWidth * displayWidth
+          absoluteHeight = annotation.relativeHeight * displayHeight
         }
 
-        console.log('Converting annotation coordinates:', {
+        console.log('Converting annotation coordinates (scaled):', {
           id: annotation.id,
           type: annotation.type,
           page: annotation.page,
           relative: { x: annotation.relativeX, y: annotation.relativeY },
-          pageDimensions: { width: pageDimensions.width, height: pageDimensions.height },
+          displayDimensions: { width: displayWidth, height: displayHeight },
+          originalDimensions: { width: pageDimensions.originalWidth, height: pageDimensions.originalHeight },
+          scale: pageDimensions.scale,
           absolute: { x: absoluteX, y: absoluteY },
           dimensions: { width: absoluteWidth, height: absoluteHeight }
         })
@@ -208,7 +210,7 @@ export default function PdfAnnotationEditor({
     })
   }
 
-  // Enhanced function to convert absolute coordinates to relative
+  // Enhanced function to convert absolute coordinates to relative using current scaled dimensions
   const convertAbsoluteToRelative = (annotation: Annotation): Annotation => {
     const pageDimensions = pagesDimensions.get(annotation.page)
     if (!pageDimensions) {
@@ -216,18 +218,24 @@ export default function PdfAnnotationEditor({
       return annotation
     }
 
-    // Convert absolute coordinates to relative (0-1 range)
-    const relativeX = annotation.x / pageDimensions.width
-    const relativeY = annotation.y / pageDimensions.height
-    const relativeWidth = annotation.width / pageDimensions.width
-    const relativeHeight = annotation.height / pageDimensions.height
+    // Use the current scaled dimensions for conversion
+    const displayWidth = pageDimensions.width
+    const displayHeight = pageDimensions.height
 
-    console.log('Converting to relative coordinates:', {
+    // Convert absolute coordinates to relative (0-1 range) based on current display dimensions
+    const relativeX = annotation.x / displayWidth
+    const relativeY = annotation.y / displayHeight
+    const relativeWidth = annotation.width / displayWidth
+    const relativeHeight = annotation.height / displayHeight
+
+    console.log('Converting to relative coordinates (scaled):', {
       id: annotation.id,
       type: annotation.type,
       page: annotation.page,
       absolute: { x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height },
-      pageDimensions: { width: pageDimensions.width, height: pageDimensions.height },
+      displayDimensions: { width: displayWidth, height: displayHeight },
+      originalDimensions: { width: pageDimensions.originalWidth, height: pageDimensions.originalHeight },
+      scale: pageDimensions.scale,
       relative: { x: relativeX, y: relativeY, width: relativeWidth, height: relativeHeight }
     })
 
@@ -240,7 +248,7 @@ export default function PdfAnnotationEditor({
     }
   }
 
-  // Calculate responsive scale based on viewport
+  // Calculate responsive scale based on viewport - stable calculation
   const calculateResponsiveScale = useCallback(() => {
     if (typeof window !== 'undefined') {
       const viewportWidth = window.innerWidth
@@ -249,8 +257,8 @@ export default function PdfAnnotationEditor({
       
       if (isMobile) {
         // On mobile, calculate scale to fit the viewport better
-        const availableWidth = viewportWidth - 32 // Account for padding
-        const availableHeight = viewportHeight - 200 // Account for header and controls
+        const availableWidth = viewportWidth - 24 // Account for new 5% wider container with less padding
+        const availableHeight = viewportHeight - 180 // Account for header and controls
         
         // Standard US Letter size is 8.5 x 11 inches = 612 x 792 points at 72 DPI
         const pdfWidth = 612
@@ -260,27 +268,53 @@ export default function PdfAnnotationEditor({
         const scaleByWidth = availableWidth / pdfWidth
         const scaleByHeight = availableHeight / pdfHeight
         
-        // Use the smaller scale to ensure PDF fits in viewport
-        const scale = Math.min(scaleByWidth, scaleByHeight)
+        // Use the smaller scale to ensure PDF fits in viewport, with 5% padding
+        const calculatedScale = Math.min(scaleByWidth, scaleByHeight) * 0.95
         
         // Cap between reasonable limits for mobile
-        return Math.max(0.5, Math.min(scale, 2.0))
+        return Math.max(0.6, Math.min(calculatedScale, 1.8))
       } else {
-        // On desktop, use standard scale - reduced for better mapping experience
-        return 1.0
+        // On desktop, use optimized scale for the wider container (5% increase)
+        return 1.25
       }
     }
-    return 1.4
+    return 1.0
   }, [])
 
   // Store page dimensions when pages load
   const handlePageLoad = (pageNumber: number, pageInfo: any) => {
     console.log('Page loaded:', pageNumber, pageInfo)
-    setPagesDimensions(prev => new Map(prev.set(pageNumber, pageInfo)))
     
-    // Update responsive scale when first page loads
-    if (pageNumber === 1) {
-      setResponsiveScale(calculateResponsiveScale())
+    // Store both original dimensions and scaled dimensions for coordinate calculations
+    const baseDimensions = {
+      width: pageInfo.originalWidth || pageInfo.width,
+      height: pageInfo.originalHeight || pageInfo.height
+    }
+    
+    // Calculate the actual displayed dimensions (scaled)
+    const currentScale = responsiveScale || 1.0
+    const scaledDimensions = {
+      width: baseDimensions.width * currentScale,
+      height: baseDimensions.height * currentScale,
+      originalWidth: baseDimensions.width,
+      originalHeight: baseDimensions.height,
+      scale: currentScale
+    }
+    
+    console.log('Storing dimensions for page', pageNumber, ':', {
+      original: baseDimensions,
+      scaled: scaledDimensions,
+      currentScale
+    })
+    
+    setPagesDimensions(prev => new Map(prev.set(pageNumber, scaledDimensions)))
+    
+    // Only calculate scale once when the document first loads and we haven't set initial scale
+    if (pageNumber === 1 && !initialScaleSet) {
+      const newScale = calculateResponsiveScale()
+      console.log('🔍 Setting initial responsive scale:', newScale)
+      setResponsiveScale(newScale)
+      setInitialScaleSet(true)
     }
   }
 
@@ -314,19 +348,76 @@ export default function PdfAnnotationEditor({
     }
   }, [initialAnnotations, pagesDimensions.size, hasUserAddedAnnotations])
 
+  // Update page dimensions when responsive scale changes
+  useEffect(() => {
+    if (pagesDimensions.size > 0 && responsiveScale && responsiveScale !== 1.0) {
+      console.log('🔄 Updating page dimensions for new scale:', responsiveScale)
+      
+      // Update all page dimensions with new scale
+      const updatedDimensionsMap = new Map()
+      pagesDimensions.forEach((dimensions, pageNumber) => {
+        const updatedDimensions = {
+          width: dimensions.originalWidth * responsiveScale,
+          height: dimensions.originalHeight * responsiveScale,
+          originalWidth: dimensions.originalWidth,
+          originalHeight: dimensions.originalHeight,
+          scale: responsiveScale
+        }
+        updatedDimensionsMap.set(pageNumber, updatedDimensions)
+      })
+      
+      setPagesDimensions(updatedDimensionsMap)
+      
+      // Re-convert existing annotations to match new scale
+      if (annotations.length > 0) {
+        console.log('🔄 Re-converting annotations for new scale')
+        const relativeAnnotations = annotations.map(annotation => {
+          // Convert current absolute coordinates back to relative using old dimensions
+          const oldDimensions = pagesDimensions.get(annotation.page)
+          if (oldDimensions) {
+            return {
+              ...annotation,
+              relativeX: annotation.x / oldDimensions.width,
+              relativeY: annotation.y / oldDimensions.height,
+              relativeWidth: annotation.width / oldDimensions.width,
+              relativeHeight: annotation.height / oldDimensions.height
+            }
+          }
+          return annotation
+        })
+        
+        // Convert back to absolute with new dimensions
+        const convertedAnnotations = convertRelativeToAbsolute(relativeAnnotations)
+        setAnnotations(convertedAnnotations)
+      }
+    }
+  }, [responsiveScale])
+
   // Add effect to handle window resize and recalculate responsive scale
   useEffect(() => {
-    // Set initial responsive scale
-    setResponsiveScale(calculateResponsiveScale())
+    // Only set initial scale if not already set
+    if (!initialScaleSet) {
+      const initialScale = calculateResponsiveScale()
+      setResponsiveScale(initialScale)
+      setInitialScaleSet(true)
+    }
     
     const handleResize = () => {
+      // Only recalculate scale on significant screen size changes
+      // This prevents zoom disruption during normal scrolling
       const newScale = calculateResponsiveScale()
-      setResponsiveScale(newScale)
+      const currentScale = responsiveScale
+      
+      // Only update if scale would change significantly (more than 10%)
+      if (Math.abs(newScale - currentScale) > currentScale * 0.1) {
+        console.log('🔄 Significant resize detected, updating scale from', currentScale, 'to', newScale)
+        setResponsiveScale(newScale)
+      }
     }
     
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  }, [initialScaleSet, responsiveScale])
 
   // Add effect to handle goToPage event from sidebar
   useEffect(() => {
@@ -385,10 +476,12 @@ export default function PdfAnnotationEditor({
     return false
   }
 
-  // Update hasUnsavedChanges when annotations change
+      // Update hasUnsavedChanges when annotations change
   useEffect(() => {
     setHasUnsavedChanges(hasSignatureChanges())
   }, [annotations, originalSignatures])
+
+
 
   // ✅ AUTO-SAVE RESTAURADO Y CORREGIDO
   // Sync annotation changes with parent component (Fast Sign mode only)
@@ -460,72 +553,25 @@ export default function PdfAnnotationEditor({
   }
 
   const handleTouchEnd = (e?: React.TouchEvent) => {
-    // Handle double-tap zoom (mobile only)
-    if (e && typeof window !== 'undefined' && window.innerWidth < 1024) {
-      const currentTime = new Date().getTime()
-      const tapLength = currentTime - lastTap
-      
-      if (tapLength < 500 && tapLength > 0) {
-        // Double tap detected
-        const touch = e.changedTouches[0]
-        const rect = e.currentTarget.getBoundingClientRect()
-        
-        // Calculate zoom origin as percentage
-        const originX = ((touch.clientX - rect.left) / rect.width) * 100
-        const originY = ((touch.clientY - rect.top) / rect.height) * 100
-        
-        setZoomOrigin({ x: originX, y: originY })
-        
-        // Toggle between normal and zoomed
-        if (viewportZoom === 1) {
-          setViewportZoom(1.5) // Zoom in to 150%
-        } else {
-          setViewportZoom(1) // Zoom out to normal
-          setZoomOrigin({ x: 50, y: 50 }) // Reset origin to center
-        }
-        
-        // Prevent swipe handling on double-tap
-        setLastTap(currentTime)
-        return
-      }
-      setLastTap(currentTime)
-    }
-
-    // Handle swipe navigation (existing logic)
+    // Handle swipe navigation
     if (!touchStart || !touchEnd) return
     
     const distanceX = touchStart.x - touchEnd.x
     const distanceY = touchStart.y - touchEnd.y
     const isLeftSwipe = distanceX > minSwipeDistance
     const isRightSwipe = distanceX < -minSwipeDistance
-    const isUpSwipe = distanceY > minSwipeDistance
-    const isDownSwipe = distanceY < -minSwipeDistance
     const isVerticalSwipe = Math.abs(distanceY) > Math.abs(distanceX)
     
     // Skip navigation if in signature placement mode
     if (currentTool === "signature") return
     
-    if (viewportZoom === 1) {
-      // Normal zoom: use horizontal swipes for page navigation
-      if (!isVerticalSwipe) {
-        if (isLeftSwipe && currentPage < (numPages || 1)) {
-          setCurrentPage(prev => prev + 1)
-        }
-        if (isRightSwipe && currentPage > 1) {
-          setCurrentPage(prev => prev - 1)
-        }
+    // Use horizontal swipes for page navigation
+    if (!isVerticalSwipe) {
+      if (isLeftSwipe && currentPage < (numPages || 1)) {
+        setCurrentPage(prev => prev + 1)
       }
-    } else {
-      // Zoomed in: use vertical swipes for page navigation
-      if (isVerticalSwipe) {
-        if (isUpSwipe && currentPage < (numPages || 1)) {
-          // Swipe up = next page
-          setCurrentPage(prev => prev + 1)
-        }
-        if (isDownSwipe && currentPage > 1) {
-          // Swipe down = previous page
-          setCurrentPage(prev => prev - 1)
-        }
+      if (isRightSwipe && currentPage > 1) {
+        setCurrentPage(prev => prev - 1)
       }
     }
   }
@@ -1255,14 +1301,7 @@ export default function PdfAnnotationEditor({
     setHasUnsavedChanges(true)
   }
 
-  // Handle zoom
-  const handleZoomIn = () => {
-    setZoomLevel(prev => Math.min(prev + 25, 200))
-  }
 
-  const handleZoomOut = () => {
-    setZoomLevel(prev => Math.max(prev - 25, 50))
-  }
 
   // Handle save
   const handleSaveAnnotations = async () => {
@@ -1385,6 +1424,8 @@ export default function PdfAnnotationEditor({
 
             {/* Desktop Actions */}
             <div className="flex items-center space-x-2">
+
+              
               {/* Add Signature Button - Hidden in preview mode */}
               {!previewMode && (
                 <div className="flex items-center space-x-2">
@@ -1484,9 +1525,11 @@ export default function PdfAnnotationEditor({
               </button>
             )}
             
-            {/* Mobile page indicator */}
-            <div className="lg:hidden flex items-center bg-background border border-border rounded-lg px-2 py-1">
-              <span className="text-xs text-foreground">{currentPage}/{numPages || 1}</span>
+            {/* Mobile indicators */}
+            <div className="lg:hidden flex items-center space-x-2">
+              <div className="flex items-center bg-background border border-border rounded-lg px-2 py-1">
+                <span className="text-xs text-foreground">{currentPage}/{numPages || 1}</span>
+              </div>
             </div>
             
 
@@ -1622,31 +1665,20 @@ export default function PdfAnnotationEditor({
 
       {/* Document Viewer */}
       <div 
-        className="flex-1 overflow-auto pb-20 lg:pb-0"
+        className="pdf-document-container pb-20 lg:pb-0"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{
-          transform: `scale(${viewportZoom})`,
-          transformOrigin: `${zoomOrigin.x}% ${zoomOrigin.y}%`,
-          transition: 'transform 0.3s ease-out'
-        }}
       >
-        <div className={`min-h-full flex justify-center ${isMobile ? 'py-2 px-1' : 'py-4 px-2 lg:px-4'}`}>
+        <div className="pdf-document-wrapper">
           <div
             ref={containerRef}
-            className={`relative bg-white shadow-lg ${
-              isMobile 
-                ? 'w-full max-w-[100vw] mx-auto' 
-                : 'w-full max-w-[98vw] lg:max-w-none'
-            }`}
+            className="pdf-document-content pdf-auto-fit"
             style={{ 
               cursor: currentTool === "signature" ? "crosshair" : "default",
-              width: "100%",
-              ...(isMobile && {
-                overflow: 'visible',
-                minHeight: 'fit-content'
-              })
+              imageRendering: 'crisp-edges',
+              WebkitFontSmoothing: 'antialiased',
+              MozOsxFontSmoothing: 'grayscale'
             }}
           >
             <Document
@@ -1671,7 +1703,7 @@ export default function PdfAnnotationEditor({
               }}
               options={PDF_OPTIONS}
               loading={
-                <div className="flex items-center justify-center min-h-[50vh] w-full max-w-full">
+                <div className="pdf-loading-container">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                     <p className="text-gray-600">Loading PDF document...</p>
@@ -1679,8 +1711,8 @@ export default function PdfAnnotationEditor({
                 </div>
               }
               error={
-                <div className="flex flex-col items-center justify-center min-h-[50vh] w-full max-w-full bg-gray-50 border-2 border-dashed border-gray-300">
-                  <div className="text-center p-4 lg:p-8">
+                <div className="pdf-error-container bg-gray-50 border-2 border-dashed border-gray-300">
+                  <div className="text-center">
                     <div className="text-red-500 text-4xl lg:text-6xl mb-4">⚠️</div>
                     <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-2">PDF Loading Failed</h3>
                     <p className="text-sm lg:text-base text-gray-600 mb-4">
@@ -1753,15 +1785,15 @@ export default function PdfAnnotationEditor({
                     ))}
                 </PdfPageWithOverlay>
               ) : isLoading ? (
-                <div className="flex items-center justify-center min-h-[50vh] w-full max-w-full bg-gray-50">
+                <div className="pdf-loading-container bg-gray-50">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                     <p className="text-gray-600">Initializing PDF viewer...</p>
                   </div>
                 </div>
               ) : pdfLoadError ? (
-                <div className="flex items-center justify-center min-h-[50vh] w-full max-w-full bg-red-50 border-2 border-red-200">
-                  <div className="text-center p-4 lg:p-6">
+                <div className="pdf-error-container bg-red-50 border-2 border-red-200">
+                  <div className="text-center">
                     <div className="text-red-500 text-3xl lg:text-4xl mb-4">❌</div>
                     <h3 className="text-base lg:text-lg font-semibold text-red-900 mb-2">PDF Error</h3>
                     <p className="text-red-700 text-xs lg:text-sm mb-4">
@@ -1780,7 +1812,7 @@ export default function PdfAnnotationEditor({
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-center min-h-[50vh] w-full max-w-[90vw] lg:w-[8.5in] lg:h-[11in] bg-gray-50">
+                <div className="pdf-loading-container bg-gray-50">
                   <div className="text-center">
                     <p className="text-gray-600">No PDF pages available</p>
                   </div>

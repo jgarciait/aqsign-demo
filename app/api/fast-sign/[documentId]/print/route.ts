@@ -94,46 +94,80 @@ export async function GET(
       }, { status: 500 })
     }
 
-    // Get signatures for this document with better error handling
+    // Get signatures for this document with better error handling and retry logic
     let signatures
     try {
       console.log('Querying signatures for document:', documentId)
       
-      // First, let's check what's actually in the database for this document
-      const { data: allSignatures, error: allSigError } = await adminClient
-        .from('document_signatures')
-        .select('*')
-        .eq('document_id', documentId)
+      // Retry logic to handle race condition with database writes
+      let retryCount = 0
+      const maxRetries = 3
+      const retryDelay = 500 // 500ms
       
-      if (allSigError) {
-        console.warn('Fast Sign Print API: Error querying all signatures:', allSigError)
-      } else {
-        console.log('All signatures for this document:', allSignatures)
-      }
+      // Add initial delay to ensure any recent writes have committed
+      console.log(`⏳ Adding 200ms initial delay to ensure fresh data...`)
+      await new Promise(resolve => setTimeout(resolve, 200))
       
-      // Now query for ALL signatures for this document (not just fast-sign@local)
-      const { data: signaturesData, error: sigError } = await adminClient
-        .from('document_signatures')
-        .select('*')
-        .eq('document_id', documentId)
+      do {
+        if (retryCount > 0) {
+          console.log(`🔄 Retry attempt ${retryCount}/${maxRetries} for signatures...`)
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+        }
+        
+        // Query for ALL signatures for this document (not just fast-sign@local)
+        // Order by created_at DESC to get the most recent signatures first
+        const { data: signaturesData, error: sigError } = await adminClient
+          .from('document_signatures')
+          .select('*')
+          .eq('document_id', documentId)
+          .order('created_at', { ascending: false })
 
-      if (sigError) {
-        console.error('Fast Sign Print API: Database error fetching signatures:', sigError)
-        // Don't fail the request for missing signatures, just log it
-        signatures = []
-      } else {
-        signatures = signaturesData || []
-      }
+        if (sigError) {
+          console.error('Fast Sign Print API: Database error fetching signatures:', sigError)
+          if (retryCount === maxRetries - 1) {
+            // Last attempt failed, set empty signatures
+            signatures = []
+            break
+          }
+        } else {
+          signatures = signaturesData || []
+          
+          // If we found signatures, break out of retry loop
+          if (signatures.length > 0) {
+            console.log(`✅ Found ${signatures.length} signatures on attempt ${retryCount + 1}`)
+            break
+          }
+          
+          // If no signatures found and this is the last attempt, warn
+          if (retryCount === maxRetries - 1) {
+            console.warn('⚠️ No signatures found after all retry attempts for document:', documentId)
+            console.log('This might indicate the document truly has no signatures or a persistent race condition')
+          }
+        }
+        
+        retryCount++
+      } while (retryCount < maxRetries)
 
-      console.log(`Fast Sign Print API: Found ${signatures.length} signature records`)
+      console.log(`Fast Sign Print API: Final result - Found ${signatures.length} signature records`)
       if (signatures.length > 0) {
         signatures.forEach((sig: any, index: number) => {
           console.log(`  Signature record ${index}:`, {
             id: sig.id,
+            created_at: sig.created_at,
+            updated_at: sig.updated_at,
+            recipient_email: sig.recipient_email,
             hasSignatureData: !!sig.signature_data,
             signatureDataType: sig.signature_data?.signatures ? 'array' : sig.signature_data?.dataUrl ? 'direct' : 'unknown',
-            signaturesCount: sig.signature_data?.signatures?.length || 0
+            signaturesCount: sig.signature_data?.signatures?.length || 0,
+            signatureIds: sig.signature_data?.signatures?.map((s: any) => s.id) || []
           })
+          
+          // Log exact position data from database
+          if (sig.signature_data?.signatures) {
+            sig.signature_data.signatures.forEach((innerSig: any, innerIndex: number) => {
+              console.log(`    🔍 DB SIGNATURE ${innerIndex} (${innerSig.id}) position:`, innerSig.position)
+            })
+          }
         })
       }
     } catch (error) {
@@ -204,7 +238,18 @@ export async function GET(
                   id: sig.id,
                   hasDataUrl: !!sig.dataUrl,
                   hasPosition: !!sig.position,
-                  page: sig.position?.page
+                  page: sig.position?.page,
+                  currentPosition: sig.position
+                })
+                console.log(`🔍 EXACT COORDINATES for signature ${sig.id}:`, {
+                  x: sig.position?.x,
+                  y: sig.position?.y,
+                  relativeX: sig.position?.relativeX,
+                  relativeY: sig.position?.relativeY,
+                  relativeWidth: sig.position?.relativeWidth,
+                  relativeHeight: sig.position?.relativeHeight,
+                  timestamp: sig.timestamp,
+                  recordUpdatedAt: sigRecord.updated_at
                 })
                 annotations.push({
                   id: sig.id,
@@ -426,10 +471,12 @@ export async function GET(
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; ${encodeFileNameForHeader(`SIGNED_${document.file_name}`)}`,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
         "X-Document-Status": "fast-signed",
         "X-Signature-Count": String(signatures?.length || 0),
         "X-Document-Type": "fast_sign",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
         "Access-Control-Allow-Origin": "*",
       },
     })

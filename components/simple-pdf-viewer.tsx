@@ -531,14 +531,13 @@ export default function SimplePdfViewer({
       </div>
 
       {/* PDF Viewer */}
-      <div className="flex-1 overflow-auto">
-        <div className="flex justify-center p-4">
+      <div className="pdf-document-container">
+        <div className="pdf-document-wrapper">
           <div 
             ref={containerRef}
-            className="relative bg-white shadow-lg border rounded"
+            className="pdf-document-content pdf-auto-fit"
             style={{ 
-              cursor: pendingSignature ? "crosshair" : "default",
-              maxWidth: '100%'
+              cursor: pendingSignature ? "crosshair" : "default"
             }}
           >
             <Document
@@ -555,7 +554,7 @@ export default function SimplePdfViewer({
               }}
               options={PDF_OPTIONS}
               loading={
-                <div className="flex items-center justify-center min-h-[50vh]">
+                <div className="pdf-loading-container">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                     <p className="text-gray-600">Cargando documento...</p>
@@ -563,7 +562,7 @@ export default function SimplePdfViewer({
                 </div>
               }
               error={
-                <div className="flex flex-col items-center justify-center min-h-[50vh] p-8">
+                <div className="pdf-error-container">
                   <div className="text-center">
                     <div className="text-red-500 text-6xl mb-4">⚠️</div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Error al cargar PDF</h3>

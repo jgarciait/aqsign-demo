@@ -28,10 +28,11 @@ export default function PdfPageWithOverlay({
   const [originalDimensions, setOriginalDimensions] = useState<{ width: number; height: number } | null>(null)
   const dimensionsSetRef = useRef(false)
 
-  // Reset dimensions when page number changes
+  // Reset dimensions when page number changes - but keep scale stable
   useEffect(() => {
     dimensionsSetRef.current = false
     setOriginalDimensions(null)
+    setPageSize(null) // Clear page size to prevent stale data
   }, [pageNumber])
 
   // Memoize the scaled dimensions to prevent unnecessary recalculations
@@ -169,7 +170,7 @@ export default function PdfPageWithOverlay({
       {/* Container with exact dimensions for both PDF and overlay */}
       <div 
         ref={containerRef}
-        className="relative bg-white shadow-lg border"
+        className="relative bg-white shadow-lg border pdf-auto-fit"
         style={containerStyle}
       >
         {/* PDF Page - exact size match */}
@@ -186,7 +187,7 @@ export default function PdfPageWithOverlay({
             onLoadSuccess={handlePageLoadSuccess}
             width={pageSize?.width}
             height={pageSize?.height}
-            className="w-full h-full"
+            className="w-full h-full pdf-auto-fit"
           />
         </div>
 
@@ -198,7 +199,7 @@ export default function PdfPageWithOverlay({
           onTouchEnd={handleTouch}
         />
 
-        {/* Annotation overlay - exact size match */}
+        {/* Annotation overlay - exact size match with responsive positioning */}
         <div 
           className="absolute top-0 left-0 pointer-events-none"
           style={layerStyle}

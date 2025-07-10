@@ -1012,6 +1012,10 @@ export default function FastSignClient() {
       console.log("💾 Saving current annotations before printing...")
       await saveAnnotationsToDatabase(annotations)
       
+      // Wait a moment to ensure the database transaction is fully committed
+      console.log("⏳ Waiting for database commit...")
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
       // Use the fast-sign print endpoint
       const printUrl = `/api/fast-sign/${documentId}/print`
 
@@ -1094,7 +1098,7 @@ export default function FastSignClient() {
       console.log("📝 Text annotations to save:", textAnnotations.length)
 
       // First, clear all existing signatures
-      await fetch(`/api/documents/${docId}/signature`, {
+      const deleteResponse = await fetch(`/api/documents/${docId}/signature`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -1104,7 +1108,12 @@ export default function FastSignClient() {
           clearAll: true,
         }),
       })
-      console.log("✅ Cleared existing signatures")
+      
+      if (!deleteResponse.ok) {
+        console.warn("⚠️ Failed to clear existing signatures, continuing anyway")
+      } else {
+        console.log("✅ Cleared existing signatures")
+      }
 
       // Save text annotations if any
       if (textAnnotations.length > 0) {
@@ -1161,6 +1170,26 @@ export default function FastSignClient() {
           }
 
           console.log(`✅ Signature ${signature.id} saved successfully`)
+        }
+        
+        // Verify signatures were saved by checking the database
+        console.log("🔍 Verifying signatures were saved...")
+        const verifyResponse = await fetch(`/api/documents/${docId}/signatures/check`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            token: Buffer.from("fast-sign@local").toString("base64"),
+            includeData: false,
+          }),
+        })
+        
+        if (verifyResponse.ok) {
+          const verifyData = await verifyResponse.json()
+          console.log(`✅ Verification: ${verifyData.signatureCount || 0} signatures found in database`)
+        } else {
+          console.warn("⚠️ Could not verify signature save")
         }
       }
 

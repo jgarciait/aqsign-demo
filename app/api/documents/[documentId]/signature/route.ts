@@ -287,7 +287,9 @@ export async function PUT(
       // Update the specific signature's position while preserving other data
       const updatedSignatures = [...signatures]
       const oldSignature = updatedSignatures[signatureIndex]
-      console.log("Old signature data:", oldSignature)
+      console.log("🔍 OLD signature data BEFORE update:", oldSignature)
+      console.log("🔍 OLD position:", oldSignature?.position)
+      console.log("🔍 NEW position to merge:", position)
       
       updatedSignatures[signatureIndex] = {
         ...updatedSignatures[signatureIndex],
@@ -298,7 +300,8 @@ export async function PUT(
         timestamp: new Date().toISOString()
       }
       
-      console.log("Updated signature data:", updatedSignatures[signatureIndex])
+      console.log("🔍 FINAL signature data AFTER update:", updatedSignatures[signatureIndex])
+      console.log("🔍 FINAL position coordinates:", updatedSignatures[signatureIndex].position)
       
       updatedSignatureData = {
         signatures: updatedSignatures
@@ -315,11 +318,14 @@ export async function PUT(
       }
     }
 
-    // Update the signature record
+    // Update the signature record - ensure status and signed_at are maintained
     const { error: updateError } = await adminClient
       .from("document_signatures")
       .update({
-        signature_data: updatedSignatureData
+        signature_data: updatedSignatureData,
+        status: "signed",
+        signed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
       .eq("document_id", documentId)
       .eq("recipient_email", effectiveRecipientEmail)
@@ -346,6 +352,38 @@ export async function PUT(
     }
 
     console.log("✅ Signature position updated successfully in database")
+    console.log(`🔄 Updated signature ${signatureId} with status: signed, signed_at: ${new Date().toISOString()}`)
+    
+    // VERIFICATION: Re-read the data immediately to confirm it was saved
+    try {
+      const { data: verificationData, error: verifyError } = await adminClient
+        .from("document_signatures")
+        .select("signature_data, updated_at")
+        .eq("document_id", documentId)
+        .eq("recipient_email", effectiveRecipientEmail)
+        .single()
+        
+      if (verifyError) {
+        console.error("🔍 VERIFICATION ERROR:", verifyError)
+      } else {
+        console.log("🔍 VERIFICATION: Data immediately after UPDATE:")
+        console.log("🔍 Updated at:", verificationData.updated_at)
+        
+        if (verificationData.signature_data?.signatures) {
+          const verifySignature = verificationData.signature_data.signatures.find((s: any) => s.id === signatureId)
+          if (verifySignature) {
+            console.log(`🔍 VERIFIED position for signature ${signatureId}:`, verifySignature.position)
+          } else {
+            console.log(`🔍 VERIFICATION: Signature ${signatureId} NOT FOUND in signatures array`)
+          }
+        } else {
+          console.log("🔍 VERIFICATION: No signatures array found")
+        }
+      }
+    } catch (verifyErr) {
+      console.error("🔍 VERIFICATION EXCEPTION:", verifyErr)
+    }
+    
     return NextResponse.json(
       { success: true, message: "Signature updated successfully" },
       { status: 200 }

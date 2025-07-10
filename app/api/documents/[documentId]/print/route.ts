@@ -93,15 +93,40 @@ export async function GET(
       .single()
 
     // Get signatures from document_signatures table
+    // Use same logic as fast-sign endpoint - order by most recent first
     const { data: signatures, error: signaturesError } = await adminClient
       .from("document_signatures")
       .select("*")
       .eq("document_id", documentId)
       .eq("recipient_email", recipientEmail)
-      .eq("status", "signed")
+      .order('created_at', { ascending: false })
 
     if (signaturesError) {
       console.error("Error fetching signatures:", signaturesError)
+    }
+
+    console.log(`🔍 Documents Print API: Found ${signatures?.length || 0} signatures for document ${documentId}, recipient ${recipientEmail}`)
+    if (signatures && signatures.length > 0) {
+      signatures.forEach((sig: any, index: number) => {
+        console.log(`  📝 Signature ${index}:`, {
+          id: sig.id,
+          status: sig.status,
+          created_at: sig.created_at,
+          updated_at: sig.updated_at,
+          hasSignatureData: !!sig.signature_data,
+          signatureDataType: sig.signature_data?.signatures ? 'array' : sig.signature_data?.dataUrl ? 'direct' : 'unknown',
+          signaturesCount: sig.signature_data?.signatures?.length || 0
+        })
+        
+        // Log exact position data from database
+        if (sig.signature_data?.signatures) {
+          sig.signature_data.signatures.forEach((innerSig: any, innerIndex: number) => {
+            console.log(`    🔍 DOCUMENTS API DB SIGNATURE ${innerIndex} (${innerSig.id}) position:`, innerSig.position)
+          })
+        } else if (sig.signature_data?.position) {
+          console.log(`    🔍 DOCUMENTS API DB OLD FORMAT position:`, sig.signature_data.position)
+        }
+      })
     }
 
     // Start with text annotations (filter out any signatures that might be there)
@@ -281,7 +306,9 @@ export async function GET(
         "X-Signature-Count": String(signatures?.length || 0),
         "X-Signed-By": `${requestDetails.customer_first_name} ${requestDetails.customer_last_name}`,
         "X-Signed-Date": requestDetails.signed_at || '',
-        "Cache-Control": "no-cache, no-store, must-revalidate", // Prevent caching during development
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
         "Access-Control-Allow-Origin": "*",
       },
     })

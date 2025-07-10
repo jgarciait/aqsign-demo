@@ -432,9 +432,10 @@ export default function DocumentViewerModal({
       // For signed documents with token and requestId, use the signed document print API
       if (token && requestId) {
         // This is a signed document - use print API to get merged PDF
-        console.log('DocumentViewerModal: Loading signed document with token and requestId')
-        setLoadingStage("Cargando documento firmado...")
+        console.log('🎯 DocumentViewerModal: Loading signed document with token and requestId')
         const url = `/api/documents/${documentId}/print?token=${encodeURIComponent(token)}&requestId=${encodeURIComponent(requestId)}`
+        console.log('🔗 Using URL:', url)
+        setLoadingStage("Cargando documento firmado...")
         setDocumentUrl(url)
         setHasSignatures(true)
         setIsUsingMergedPdf(true) // This is a merged PDF with signatures baked in
@@ -606,7 +607,8 @@ export default function DocumentViewerModal({
           
           if (signatureData.hasSignatures) {
             // This document has signatures - use fast-sign print endpoint for merged PDF
-            console.log('Document has signatures - using fast-sign print endpoint (signatures already merged in PDF)')
+            console.log(`🎯 DocumentViewerModal: Document has ${signatureData.signatureCount} signatures - using fast-sign print endpoint`)
+            console.log('🔗 Using URL:', `/api/fast-sign/${documentId}/print`)
             setLoadingStage("Procesando documento con firmas...")
             setDocumentUrl(`/api/fast-sign/${documentId}/print`)
             setHasSignatures(true)
@@ -622,7 +624,8 @@ export default function DocumentViewerModal({
       
       if (docExists) {
         // No signatures or signature check failed - use regular PDF
-        console.log('Document has no signatures - using regular PDF endpoint')
+        console.log('🎯 DocumentViewerModal: Document has no signatures - using regular PDF endpoint')
+        console.log('🔗 Using URL:', `/api/pdf/${documentId}`)
         setLoadingStage("Cargando documento original...")
         setDocumentUrl(`/api/pdf/${documentId}`)
         setHasSignatures(false)
@@ -638,7 +641,8 @@ export default function DocumentViewerModal({
           
           if (fastSignResponse.ok) {
             // Document found in fast-sign endpoint
-            console.log('Document found in fast-sign endpoint')
+            console.log('🎯 DocumentViewerModal: Document found in fast-sign endpoint (fallback)')
+            console.log('🔗 Using URL:', `/api/fast-sign/${documentId}/print`)
             setLoadingStage("Procesando documento con firmas...")
             setDocumentUrl(`/api/fast-sign/${documentId}/print`)
             setHasSignatures(true)
@@ -831,12 +835,12 @@ export default function DocumentViewerModal({
         {/* Main content area */}
         <div className="flex flex-1 min-h-0">
           {/* Document viewer */}
-          <div className="flex-1 overflow-auto bg-gray-100 p-4">
-            <div className="flex justify-center">
+          <div className="pdf-document-container bg-gray-100">
+            <div className="pdf-document-wrapper">
               {isLoading ? (
                 <LoadingComponent stage={loadingStage} />
               ) : error ? (
-                <div className="flex items-center justify-center h-96">
+                <div className="pdf-error-container">
                   <div className="text-center max-w-md">
                     <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Error al cargar</h3>
@@ -847,7 +851,7 @@ export default function DocumentViewerModal({
                   </div>
                 </div>
               ) : (
-                <div className="bg-white shadow-lg">
+                <div className="pdf-document-content pdf-auto-fit">
                   <Document
                     key={documentUrl} // Force re-render when URL changes
                     file={documentUrl}
