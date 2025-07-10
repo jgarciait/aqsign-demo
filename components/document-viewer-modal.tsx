@@ -717,7 +717,7 @@ export default function DocumentViewerModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl w-full h-[100vh] p-0 overflow-hidden flex flex-col" hideCloseButton>
+      <DialogContent className="max-w-[90vw] w-[90vw] h-[100vh] p-0 overflow-hidden flex flex-col" hideCloseButton>
         <DialogHeader className="px-6 py-3 bg-gray-50 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
