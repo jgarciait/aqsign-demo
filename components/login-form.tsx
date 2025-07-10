@@ -5,20 +5,71 @@ import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useGoogleReCaptcha } from "react-google-recaptcha-v3"
 import { createClient } from "@/utils/supabase/client"
 
 export default function LoginForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [honeypot, setHoneypot] = useState("") // Honeypot field
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+  const { executeRecaptcha } = useGoogleReCaptcha()
+
+  const verifyRecaptcha = async (action: string): Promise<boolean> => {
+    if (!executeRecaptcha) {
+      console.warn("reCAPTCHA not available")
+      return true // Allow login if reCAPTCHA is not configured
+    }
+
+    try {
+      const token = await executeRecaptcha(action)
+      
+      const response = await fetch("/api/auth/verify-recaptcha", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token, action }),
+      })
+
+      const result = await response.json()
+      
+      if (!result.success) {
+        console.warn("reCAPTCHA verification failed:", result)
+        return false
+      }
+
+      console.log(`reCAPTCHA verification successful - Score: ${result.score}`)
+      return true
+    } catch (error) {
+      console.error("reCAPTCHA verification error:", error)
+      return true // Allow login on reCAPTCHA error to avoid blocking legitimate users
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setLoading(true)
+
+    // Honeypot check - if filled, it's likely a bot
+    if (honeypot) {
+      console.warn("Honeypot field filled - potential bot detected")
+      setError("Error de validación")
+      setLoading(false)
+      return
+    }
+
+    // Verify reCAPTCHA
+    const recaptchaValid = await verifyRecaptcha("login")
+    if (!recaptchaValid) {
+      setError("Verificación de seguridad fallida. Por favor, inténtelo de nuevo.")
+      setLoading(false)
+      return
+    }
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -44,6 +95,22 @@ export default function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && <div className="bg-red-50 text-red-500 p-3 rounded-md text-sm">{error}</div>}
+
+      {/* Honeypot field - hidden from users but visible to bots */}
+      <div style={{ display: "none" }}>
+        <label htmlFor="website">
+          Leave this empty
+        </label>
+        <input
+          id="website"
+          name="website"
+          type="text"
+          value={honeypot}
+          onChange={(e) => setHoneypot(e.target.value)}
+          autoComplete="off"
+          tabIndex={-1}
+        />
+      </div>
 
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -115,6 +182,30 @@ export default function LoginForm() {
       >
         {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
       </button>
+
+      <div className="mt-4 text-center">
+        <p className="text-xs text-gray-500">
+          Este sitio está protegido por reCAPTCHA y se aplican la{" "}
+          <a
+            href="https://policies.google.com/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            Política de Privacidad
+          </a>{" "}
+          y los{" "}
+          <a
+            href="https://policies.google.com/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            Términos de Servicio
+          </a>{" "}
+          de Google.
+        </p>
+      </div>
     </form>
   )
 }

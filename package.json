@@ -70,6 +70,7 @@
     "react-day-picker": "latest",
     "react-dom": "^19",
     "react-draggable": "^4.4.6",
+    "react-google-recaptcha-v3": "^1.11.0",
     "react-hook-form": "latest",
     "react-pdf": "9.2.1",
     "react-resizable-panels": "latest",

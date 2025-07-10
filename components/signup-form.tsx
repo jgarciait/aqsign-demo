@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState } from "react"
+import { useGoogleReCaptcha } from "react-google-recaptcha-v3"
 import { handleSignup } from "@/app/actions/auth-actions"
 
 export default function SignupForm() {
@@ -11,14 +12,55 @@ export default function SignupForm() {
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [invitationCode, setInvitationCode] = useState("")
+  const [honeypot, setHoneypot] = useState("") // Honeypot field
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const { executeRecaptcha } = useGoogleReCaptcha()
+
+  const verifyRecaptcha = async (action: string): Promise<boolean> => {
+    if (!executeRecaptcha) {
+      console.warn("reCAPTCHA not available")
+      return true // Allow signup if reCAPTCHA is not configured
+    }
+
+    try {
+      const token = await executeRecaptcha(action)
+      
+      const response = await fetch("/api/auth/verify-recaptcha", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token, action }),
+      })
+
+      const result = await response.json()
+      
+      if (!result.success) {
+        console.warn("reCAPTCHA verification failed:", result)
+        return false
+      }
+
+      console.log(`reCAPTCHA verification successful - Score: ${result.score}`)
+      return true
+    } catch (error) {
+      console.error("reCAPTCHA verification error:", error)
+      return true // Allow signup on reCAPTCHA error to avoid blocking legitimate users
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setMessage(null)
+
+    // Honeypot check - if filled, it's likely a bot
+    if (honeypot) {
+      console.warn("Honeypot field filled - potential bot detected")
+      setError("Error de validación")
+      return
+    }
 
     if (password !== confirmPassword) {
       setError("Las contraseñas no coinciden")
@@ -26,6 +68,14 @@ export default function SignupForm() {
     }
 
     setLoading(true)
+
+    // Verify reCAPTCHA
+    const recaptchaValid = await verifyRecaptcha("signup")
+    if (!recaptchaValid) {
+      setError("Verificación de seguridad fallida. Por favor, inténtelo de nuevo.")
+      setLoading(false)
+      return
+    }
 
     try {
       const result = await handleSignup(
@@ -47,6 +97,7 @@ export default function SignupForm() {
         setFirstName("")
         setLastName("")
         setInvitationCode("")
+        setHoneypot("")
       }
     } catch (err) {
       console.error("Signup error:", err)
@@ -63,6 +114,22 @@ export default function SignupForm() {
       {message && (
         <div className="bg-green-50 border border-green-200 text-green-700 p-3 rounded-md text-sm">{message}</div>
       )}
+
+      {/* Honeypot field - hidden from users but visible to bots */}
+      <div style={{ display: "none" }}>
+        <label htmlFor="phone-number">
+          Leave this empty
+        </label>
+        <input
+          id="phone-number"
+          name="phone-number"
+          type="text"
+          value={honeypot}
+          onChange={(e) => setHoneypot(e.target.value)}
+          autoComplete="off"
+          tabIndex={-1}
+        />
+      </div>
 
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1">
@@ -159,6 +226,30 @@ export default function SignupForm() {
       >
         {loading ? "Creando cuenta..." : "Registrarse"}
       </button>
+
+      <div className="mt-4 text-center">
+        <p className="text-xs text-gray-500">
+          Este sitio está protegido por reCAPTCHA y se aplican la{" "}
+          <a
+            href="https://policies.google.com/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            Política de Privacidad
+          </a>{" "}
+          y los{" "}
+          <a
+            href="https://policies.google.com/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            Términos de Servicio
+          </a>{" "}
+          de Google.
+        </p>
+      </div>
     </form>
   )
 }
